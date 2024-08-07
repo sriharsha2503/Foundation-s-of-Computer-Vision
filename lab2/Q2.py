@@ -66,3 +66,59 @@ cv.imwrite(os.path.join(output_dir, "input_image_specified.jpg"), input_img_spec
 
 print("Images saved successfully.")
 
+#Q2 can be done as follows
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def calculate_histogram(image, bins=256):
+    """Calculate the histogram of an image."""
+    hist, _ = np.histogram(image.flatten(), bins=bins, range=[0, 256])
+    return hist
+
+def calculate_cdf(hist):
+    """Calculate the cumulative distribution function for a histogram."""
+    cdf = hist.cumsum()
+    cdf_normalized = cdf * hist.max() / cdf.max()  # Normalize
+    return cdf, cdf_normalized
+
+def histogram_specification(input_image, reference_image):
+    """Match the histogram of the input image to the reference image."""
+    # Calculate the histogram and CDF of the input image
+    input_hist = calculate_histogram(input_image)
+    input_cdf, _ = calculate_cdf(input_hist)
+
+    # Calculate the histogram and CDF of the reference image
+    reference_hist = calculate_histogram(reference_image)
+    reference_cdf, _ = calculate_cdf(reference_hist)
+
+    # Create a lookup table to map input image pixel values to reference image pixel values
+    lookup_table = np.zeros(256)
+    g_j = 0
+    for g_i in range(256):
+        while g_j < 256 and input_cdf[g_i] > reference_cdf[g_j]:
+            g_j += 1
+        lookup_table[g_i] = g_j
+
+    # Apply the mapping to the input image
+    specified_image = cv2.LUT(input_image, lookup_table.astype(np.uint8))
+    return specified_image
+
+def show_images(input_image, reference_image, output_image):
+    """Display input, reference, and output images."""
+    plt.figure(figsize=(12, 4))
+    plt.subplot(131), plt.imshow(input_image, cmap='gray'), plt.title('Input Image')
+    plt.subplot(132), plt.imshow(reference_image, cmap='gray'), plt.title('Reference Image')
+    plt.subplot(133), plt.imshow(output_image, cmap='gray'), plt.title('Specified Image')
+    plt.show()
+
+# Load input and reference images
+input_image = cv2.imread('input_image.jpg', cv2.IMREAD_GRAYSCALE)
+reference_image = cv2.imread('reference_image.jpg', cv2.IMREAD_GRAYSCALE)
+
+# Perform histogram specification
+specified_image = histogram_specification(input_image, reference_image)
+
+# Display the images
+show_images(input_image, reference_image, specified_image)
+
