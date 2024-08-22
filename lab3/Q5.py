@@ -1,34 +1,45 @@
 import numpy as np
 import cv2
-import matplotlib.pyplot as plt
+
 
 def Canny_detector(img, weak_th=None, strong_th=None):
 
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+    cv2.imshow("Converted to GrayScale",img)
+
     img = cv2.GaussianBlur(img, (5, 5), 1.4)
 
+
+    # Calculating the gradients
     gx = cv2.Sobel(np.float32(img), cv2.CV_64F, 1, 0, 3)
     gy = cv2.Sobel(np.float32(img), cv2.CV_64F, 0, 1, 3)
 
+    # Conversion of Cartesian coordinates to polar
     mag, ang = cv2.cartToPolar(gx, gy, angleInDegrees=True)
 
     mag_max = np.max(mag)
     if not weak_th: weak_th = mag_max * 0.1
     if not strong_th: strong_th = mag_max * 0.5
 
+    # getting the dimensions of the input image
     height, width = img.shape
 
+    # Looping through every pixel of the grayscale image
     for i_x in range(width):
         for i_y in range(height):
 
             grad_ang = ang[i_y, i_x]
             grad_ang = abs(grad_ang - 180) if abs(grad_ang) > 180 else abs(grad_ang)
 
+            # selecting the neighbours of the target pixel
+            # according to the gradient direction
+            # In the x axis direction
             if grad_ang <= 22.5:
                 neighb_1_x, neighb_1_y = i_x - 1, i_y
                 neighb_2_x, neighb_2_y = i_x + 1, i_y
 
+            # top right (diagonal-1) direction
             elif grad_ang > 22.5 and grad_ang <= (22.5 + 45):
                 neighb_1_x, neighb_1_y = i_x - 1, i_y - 1
                 neighb_2_x, neighb_2_y = i_x + 1, i_y + 1
@@ -58,10 +69,13 @@ def Canny_detector(img, weak_th=None, strong_th=None):
                 if mag[i_y, i_x] < mag[neighb_2_y, neighb_2_x]:
                     mag[i_y, i_x] = 0
 
+
+
     weak_ids = np.zeros_like(img)
     strong_ids = np.zeros_like(img)
     ids = np.zeros_like(img)
 
+    # double thresholding step
     for i_x in range(width):
         for i_y in range(height):
 
@@ -74,12 +88,15 @@ def Canny_detector(img, weak_th=None, strong_th=None):
             else:
                 ids[i_y, i_x] = 2
 
+    # finally returning the magnitude of
+    # gradients of edges
     return mag
 
 
-frame = cv2.imread('/home/student/220962019/opencv/lab3/image.jpeg')
+frame = cv2.imread('/home/student/220962019/opencv/lab3/Lenna.png')
 canny_img = Canny_detector(frame)
 
+# Displaying the input and output image
 cv2.imshow('Input',frame)
 cv2.imshow('Output',canny_img)
 cv2.waitKey(0)
