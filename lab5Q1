@@ -1,0 +1,71 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def lbp(image, radius=1, n_points=8):
+    if image is None:
+        raise ValueError("Image not loaded. Please check the file path.")
+
+    if len(image.shape) == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    rows, cols = image.shape
+    lbp_image = np.zeros((rows, cols), dtype=np.uint8)
+
+
+    for i in range(radius, rows - radius):
+        for j in range(radius, cols - radius):
+            center = image[i, j]
+            binary_value = 0
+
+
+            for k in range(n_points):
+                theta = 2 * np.pi * k / n_points
+                x = int(radius * np.cos(theta) + j)
+                y = int(radius * np.sin(theta) + i)
+
+                # Get binary value
+                if image[y, x] >= center:
+                    binary_value |= (1 << k)
+
+            lbp_image[i, j] = binary_value
+
+    return lbp_image
+
+def calculate_histogram(lbp_image, n_points=8):
+    num_bins = 2 ** n_points
+    histogram = np.zeros(num_bins, dtype=np.float32)
+
+    for value in lbp_image.ravel():
+        histogram[value] += 1
+
+
+    histogram /= histogram.sum()
+
+    return histogram
+
+def display_lbp_histogram(histogram):
+    plt.figure(figsize=(10, 5))
+    plt.bar(range(len(histogram)), histogram, width=0.5)
+    plt.xlabel('LBP Value')
+    plt.ylabel('Frequency')
+    plt.title('LBP Histogram')
+    plt.show()
+
+if __name__ == "__main__":
+    image_path = '/home/student/220962019/opencv/220962019_lab5/original_image.jpg'
+    image = cv2.imread(image_path)
+
+    if image is None:
+        print(f"Error: Unable to load image at path {image_path}")
+    else:
+        lbp_image = lbp(image)
+        histogram = calculate_histogram(lbp_image)
+
+        # Display the LBP image
+        cv2.imshow('LBP Image', lbp_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+        # Display the histogram
+        display_lbp_histogram(histogram)
