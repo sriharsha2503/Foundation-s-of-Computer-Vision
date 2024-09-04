@@ -1,0 +1,44 @@
+# 3. Implement the HoG descriptor and apply it to detect humans in images. You may follow the steps given 
+# below:
+# a) Obtain a dataset containing images with humans and non-human objects. Compute HoG 
+#  for these images as references.
+# b) Extract HoG features using a sliding window approach.
+# c) Calculate a similarity score or distance metric between the HoG descriptor of the window 
+#  and a reference HoG descriptor.
+# c) Identify and collect windows that exceed the similarity score threshold. Choose the best 
+#  window among the overlapping windows.
+
+import cv2
+import numpy as np
+
+
+def compute_gradient(image):
+    gx = cv2.Sobel(image, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(image, cv2.CV_32F, 0, 1, ksize=3)
+    magnitude = np.sqrt(gx**2 + gy**2)
+    angle = np.arctan2(gy, gx) * (180 / np.pi) % 180
+    return magnitude, angle
+
+
+def compute_hog_features(image, cell_size=(8, 8), block_size=(2, 2), num_bins=9):
+    height, width = image.shape
+    magnitude, angle = compute_gradient(image)
+
+    cells = (height // cell_size[1], width // cell_size[0])
+    histogram = np.zeros((cells[0], cells[1], num_bins))
+    
+    for i in range(cells[0]):
+        for j in range(cells[1]):
+            cell_mag = magnitude[i*cell_size[1]:(i+1)*cell_size[1], j*cell_size[0]:(j+1)*cell_size[0]]
+            cell_ang = angle[i*cell_size[1]:(i+1)*cell_size[1], j*cell_size[0]:(j+1)*cell_size[0]]
+            for k in range(num_bins):
+                bin_mask = (cell_ang >= k * (180 / num_bins)) & (cell_ang < (k + 1) * (180 / num_bins))
+                histogram[i, j, k] = np.sum(cell_mag[bin_mask])
+    
+    
+    return histogram
+
+
+image = cv2.imread('/home/student/220962276_cv/pythonProject/week1/street.jpeg')
+image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+hog_features = compute_hog_features(image)
