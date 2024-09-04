@@ -3,97 +3,85 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage.feature import hog
 from skimage import exposure
+import imutils.object_detection as od
 
-# Function to compute the HoG descriptor
+# Function to compute the HoG descriptor for a single image
 def compute_hog(image):
-    # Convert image to grayscale
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # Compute HoG features
     hog_features, hog_image = hog(
         gray_image,
-        orientations=9,  # Number of gradient orientations
-        pixels_per_cell=(8, 8),  # Size of cell
-        cells_per_block=(2, 2),  # Number of cells per block
+        orientations=9,
+        pixels_per_cell=(8, 8),
+        cells_per_block=(2, 2),
         block_norm='L2-Hys',
         visualize=True,
         transform_sqrt=True
     )
-    
     return hog_features, hog_image
 
-# Example usage
-image = cv2.imread('path_to_your_image.jpg')
-hog_features, hog_image = compute_hog(image)
-
-# Display the original image and HoG image
-plt.figure(figsize=(10, 5))
-plt.subplot(1, 2, 1)
-plt.title('Original Image')
-plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-
-plt.subplot(1, 2, 2)
-plt.title('HoG Image')
-plt.imshow(hog_image, cmap='gray')
-plt.show()
-
-
-
-# Sliding window implementation
+# Sliding window generator
 def sliding_window(image, step_size, window_size):
     # Slide a window across the image
     for y in range(0, image.shape[0] - window_size[1], step_size):
         for x in range(0, image.shape[1] - window_size[0], step_size):
             yield (x, y, image[y:y + window_size[1], x:x + window_size[0]])
 
-# Example usage of sliding window
-image = cv2.imread('path_to_test_image.jpg')
-(window_width, window_height) = (64, 128)  # Typical size for human detection
-step_size = 16  # Move the window by 16 pixels
+# Function to apply non-max suppression to reduce overlapping boxes
+def non_max_suppression(rects, overlapThresh=0.65):
+    # Perform non-maximum suppression to remove overlapping windows
+    return od.non_max_suppression(rects, probs=None, overlapThresh=overlapThresh)
 
-for (x, y, window) in sliding_window(image, step_size, (window_width, window_height)):
-    if window.shape[0] != window_height or window.shape[1] != window_width:
-        continue
+# Human detection using OpenCV's pre-trained HoG + SVM detector
+def detect_humans(image):
+    hog_detector = cv2.HOGDescriptor()
+    hog_detector.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+
+    # Detect humans in the image
+    rects, weights = hog_detector.detectMultiScale(image, winStride=(8, 8), padding=(8, 8), scale=1.05)
+
+    return rects, weights
+
+# Main function to detect and visualize human detections
+def main():
+    # Load your test image
+    image_path = 'path_to_your_test_image.jpg'
+    image = cv2.imread(image_path)
+
+    # Step 1: Extract HoG Features
+    hog_features, hog_image = compute_hog(image)
     
-    # Compute HoG for the window
-    hog_features, _ = compute_hog(window)
+    # Step 2: Detect humans in the image
+    rects, weights = detect_humans(image)
     
-    # Process the HoG descriptor as needed (e.g., calculate similarity score)
+    # Draw rectangles for the initial detections
+    orig_image = image.copy()
+    for (x, y, w, h) in rects:
+        cv2.rectangle(orig_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
+    # Show initial human detections
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.title('Original Image with Human Detections')
+    plt.imshow(cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB))
 
+    plt.subplot(1, 2, 2)
+    plt.title('HoG Image')
+    plt.imshow(hog_image, cmap='gray')
+    plt.show()
 
+    # Step 3: Apply Non-Max Suppression
+    pick = non_max_suppression(rects)
 
+    # Draw the final rectangles after non-max suppression
+    final_image = image.copy()
+    for (x, y, w, h) in pick:
+        cv2.rectangle(final_image, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-# Initialize OpenCV's pre-trained HoG descriptor + SVM-based human detector
-hog_detector = cv2.HOGDescriptor()
-hog_detector.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+    # Show the final image after non-max suppression
+    plt.figure(figsize=(10, 5))
+    plt.title('Final Detections after Non-Max Suppression')
+    plt.imshow(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB))
+    plt.show()
 
-# Detect humans in the image
-(image_height, image_width) = image.shape[:2]
-rects, weights = hog_detector.detectMultiScale(image, winStride=(8, 8), padding=(8, 8), scale=1.05)
-
-# Draw rectangles around the detected humans
-for (x, y, w, h) in rects:
-    cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-# Display the output image with detected humans
-plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-plt.title('Human Detection')
-plt.show()
-
-
-
-
-import imutils.object_detection as od
-
-# Apply non-maxima suppression to eliminate redundant overlapping boxes
-pick = od.non_max_suppression(rects, probs=None, overlapThresh=0.65)
-
-# Draw the final bounding boxes
-for (x, y, w, h) in pick:
-    cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
-
-# Show the output after NMS
-plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-plt.title('Final Detection after NMS')
-plt.show()
+if __name__ == '__main__':
+    main()
