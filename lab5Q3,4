@@ -1,0 +1,92 @@
+#question 1
+import numpy as np
+import pandas as pd
+
+df = pd.read_csv('study_scores.csv')
+
+X = df['Study_time_hours'].values
+y = df['Score_out_of_10'].values
+
+# Compute means
+X_mean = np.mean(X)
+y_mean = np.mean(y)
+
+# Compute B1 (slope) using the summation formula
+numerator = np.sum((X - X_mean) * (y - y_mean))
+denominator = np.sum((X - X_mean) ** 2)
+B1 = numerator / denominator
+
+# Compute B0 (intercept)
+B0 = y_mean - B1 * X_mean
+
+# Compute predicted responses
+y_pred = B0 + B1 * X
+
+# Compute RMSE
+RMSE = np.sqrt(np.mean((y - y_pred) ** 2))
+
+print(f"Intercept (B0): {B0:.2f}")
+print(f"Slope (B1): {B1:.2f}")
+print(f"RMSE: {RMSE:.2f}")
+
+
+
+
+
+#question 2
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def compute_descriptors(image, keypoints, size=16, bin_size=4):
+    grad_x, grad_y = np.gradient(image.astype(np.float32))
+    descriptors = []
+
+    for kp in keypoints:
+        x, y = int(kp.pt[0]), int(kp.pt[1])
+        patch = image[y-size:y+size, x-size:x+size]
+        grad_x_patch, grad_y_patch = grad_x[y-size:y+size, x-size:x+size], grad_y[y-size:y+size, x-size:x+size]
+
+        magnitudes = np.sqrt(grad_x_patch**2 + grad_y_patch**2)
+        orientations = np.arctan2(grad_y_patch, grad_x_patch) * 180 / np.pi
+        orientations[orientations < 0] += 360
+
+        histograms = np.zeros((bin_size, bin_size, 8))
+        for i in range(bin_size):
+            for j in range(bin_size):
+                bin_x, bin_y = i * size // bin_size, j * size // bin_size
+                mag = magnitudes[bin_x:bin_x + size // bin_size, bin_y:bin_y + size // bin_size].flatten()
+                ori = orientations[bin_x:bin_x + size // bin_size, bin_y:bin_y + size // bin_size].flatten()
+                for k in range(len(mag)):
+                    bin_idx = int(ori[k] / 45) % 8
+                    histograms[i, j, bin_idx] += mag[k]
+
+        descriptor = histograms.flatten()
+        descriptor /= np.linalg.norm(descriptor) + 1e-7
+        descriptors.append(descriptor)
+
+    return np.array(descriptors)
+
+def apply_sift(image_path):
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    sift = cv2.SIFT_create()
+    keypoints, descriptors = sift.detectAndCompute(img, None)
+
+    custom_descriptors = compute_descriptors(img, keypoints)
+
+    print(f"OpenCV SIFT descriptors shape: {descriptors.shape}")
+    print(f"Custom SIFT descriptors shape: {custom_descriptors.shape}")
+
+    img_with_keypoints = cv2.drawKeypoints(img, keypoints, None)
+    plt.subplot(1, 2, 1)
+    plt.title('OpenCV SIFT')
+    plt.imshow(cv2.cvtColor(img_with_keypoints, cv2.COLOR_BGR2RGB))
+
+    plt.subplot(1, 2, 2)
+    plt.title('Custom SIFT')
+    plt.imshow(cv2.cvtColor(img_with_keypoints, cv2.COLOR_BGR2RGB))
+    plt.show()
+
+# Example usage
+apply_sift('../images/lanes.png')
