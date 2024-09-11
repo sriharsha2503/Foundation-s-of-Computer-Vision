@@ -85,3 +85,161 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+
+========================================================================================
+import numpy as np
+import cv2
+import math
+
+def compute_gradients(image):
+    # Define Sobel kernels for computing gradients in x and y directions
+    sobel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+    sobel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+
+    # Apply convolution to get gradients
+    grad_x = cv2.filter2D(image, -1, sobel_x)
+    grad_y = cv2.filter2D(image, -1, sobel_y)
+
+    # Compute gradient magnitude and direction
+    magnitude = np.sqrt(grad_x**2 + grad_y**2)
+    direction = np.arctan2(grad_y, grad_x) * (180 / np.pi) % 180
+
+    return magnitude, direction
+
+
+
+def compute_hog(magnitude, direction, cell_size=8, bins=9):
+    rows, cols = magnitude.shape
+    num_cells_x = cols // cell_size
+    num_cells_y = rows // cell_size
+    bin_size = 180 // bins
+
+    hog = np.zeros((num_cells_y, num_cells_x, bins))
+
+    for i in range(num_cells_y):
+        for j in range(num_cells_x):
+            cell_magnitude = magnitude[i * cell_size:(i + 1) * cell_size, j * cell_size:(j + 1) * cell_size]
+            cell_direction = direction[i * cell_size:(i + 1) * cell_size, j * cell_size:(j + 1) * cell_size]
+            for p in range(cell_size):
+                for q in range(cell_size):
+                    bin_idx = int(cell_direction[p, q] // bin_size)
+                    hog[i, j, bin_idx] += cell_magnitude[p, q]
+
+    return hog
+
+
+
+
+def normalize_hog(hog, block_size=2):
+    num_cells_y, num_cells_x, bins = hog.shape
+    eps = 1e-5  # Small value to avoid division by zero
+
+    normalized_hog = np.zeros_like(hog)
+
+    for i in range(num_cells_y - block_size + 1):
+        for j in range(num_cells_x - block_size + 1):
+            block = hog[i:i+block_size, j:j+block_size, :]
+            norm = np.sqrt(np.sum(block**2) + eps)
+            normalized_hog[i:i+block_size, j:j+block_size, :] = block / norm
+
+    return normalized_hog
+
+
+
+
+def sliding_window(image, window_size, step_size):
+    for y in range(0, image.shape[0] - window_size[1], step_size):
+        for x in range(0, image.shape[1] - window_size[0], step_size):
+            yield (x, y, image[y:y + window_size[1], x:x + window_size[0]])
+
+
+
+
+def compute_similarity(hog1, hog2):
+    return np.linalg.norm(hog1 - hog2)
+
+
+def non_max_suppression(windows, overlap_thresh=0.3):
+    if len(windows) == 0:
+        return []
+
+    # Initialize a list to hold the final windows
+    final_windows = []
+
+    # Sort the windows by the similarity score
+    windows = sorted(windows, key=lambda x: x[1], reverse=True)
+
+    while len(windows) > 0:
+        best_window = windows.pop(0)
+        final_windows.append(best_window)
+
+        windows = [w for w in windows if calculate_overlap(best_window[0], w[0]) < overlap_thresh]
+
+    return final_windows
+
+def calculate_overlap(win1, win2):
+    # Calculate the overlap between two windows
+    x1, y1, w1, h1 = win1
+    x2, y2, w2, h2 = win2
+
+    intersection_x = max(0, min(x1 + w1, x2 + w2) - max(x1, x2))
+    intersection_y = max(0, min(y1 + h1, y2 + h2) - max(y1, y2))
+
+    intersection_area = intersection_x * intersection_y
+    union_area = w1 * h1 + w2 * h2 - intersection_area
+
+    return intersection_area / union_area if union_area > 0 else 0
+
+
+
+if __name__ == "__main__":
+    image_path = "path_to_image_with_humans.jpg"
+    reference_image_path = "path_to_reference_image_with_human.jpg"
+
+    # Load the images
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    reference_image = cv2.imread(reference_image_path, cv2.IMREAD_GRAYSCALE)
+
+    if image is None or reference_image is None:
+        print("Error: Could not load the images.")
+        exit()
+
+    # Compute gradients for both the reference and test image
+    magnitude_ref, direction_ref = compute_gradients(reference_image)
+    magnitude, direction = compute_gradients(image)
+
+    # Compute HoG descriptors
+    hog_ref = compute_hog(magnitude_ref, direction_ref)
+    normalized_hog_ref = normalize_hog(hog_ref)
+
+    # Apply sliding window approach
+    window_size = (64, 128)  # Standard window size for human detection
+    step_size = 16  # Sliding window step size
+    windows = []
+
+    for (x, y, window) in sliding_window(image, window_size, step_size):
+        if window.shape[0] != window_size[1] or window.shape[1] != window_size[0]:
+            continue
+
+        # Compute HoG for the window
+        magnitude_window, direction_window = compute_gradients(window)
+        hog_window = compute_hog(magnitude_window, direction_window)
+        normalized_hog_window = normalize_hog(hog_window)
+
+        # Compute similarity score
+        similarity = compute_similarity(normalized_hog_window, normalized_hog_ref)
+        windows.append(((x, y, window_size[0], window_size[1]), similarity))
+
+    # Apply non-maximum suppression to eliminate overlapping windows
+    best_windows = non_max_suppression(windows)
+
+    # Display the best windows on the original image
+    for (x, y, w, h), _ in best_windows:
+        cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+    cv2.imshow("Detected Humans", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
