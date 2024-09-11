@@ -1,34 +1,3 @@
-#question 1
-import numpy as np
-import pandas as pd
-
-df = pd.read_csv('study_scores.csv')
-
-X = df['Study_time_hours'].values
-y = df['Score_out_of_10'].values
-
-# Compute means
-X_mean = np.mean(X)
-y_mean = np.mean(y)
-
-# Compute B1 (slope) using the summation formula
-numerator = np.sum((X - X_mean) * (y - y_mean))
-denominator = np.sum((X - X_mean) ** 2)
-B1 = numerator / denominator
-
-# Compute B0 (intercept)
-B0 = y_mean - B1 * X_mean
-
-# Compute predicted responses
-y_pred = B0 + B1 * X
-
-# Compute RMSE
-RMSE = np.sqrt(np.mean((y - y_pred) ** 2))
-
-print(f"Intercept (B0): {B0:.2f}")
-print(f"Slope (B1): {B1:.2f}")
-print(f"RMSE: {RMSE:.2f}")
-
 
 
 
