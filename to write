@@ -1,0 +1,417 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def compute_gradients(image):
+    # Compute gradients using Sobel operator
+    grad_x = cv2.Sobel(image, cv2.CV_32F, 1, 0, ksize=1)
+    grad_y = cv2.Sobel(image, cv2.CV_32F, 0, 1, ksize=1)
+
+    # Compute magnitude and angle of the gradients
+    magnitude, angle = cv2.cartToPolar(grad_x, grad_y, angleInDegrees=True)
+
+    return magnitude, angle
+
+def compute_hog_descriptor(image):
+    # Resize the image to 64x128 (standard size for detecting humans using HOG)
+    image_resized = cv2.resize(image, (64, 128))
+
+    # Step 1: Compute gradients
+    magnitude, angle = compute_gradients(image_resized)
+
+    # Initialize the HOG descriptor list
+    num_cells_x = image_resized.shape[1] // 8  # 8x8 cells in x direction
+    num_cells_y = image_resized.shape[0] // 8  # 8x8 cells in y direction
+    hog_descriptor = []
+
+    # Step 2: Compute histogram of gradients for each 8x8 cell
+    for i in range(num_cells_y):
+        for j in range(num_cells_x):
+            cell_mag = magnitude[i * 8:(i + 1) * 8, j * 8:(j + 1) * 8]
+            cell_angle = angle[i * 8:(i + 1) * 8, j * 8:(j + 1) * 8]
+
+            # Histogram with 9 bins for angles 0 to 180 degrees
+            hist, _ = np.histogram(cell_angle, bins=9, range=(0, 180), weights=cell_mag)
+            hog_descriptor.append(hist)
+
+    # Step 3: Normalize the HOG descriptor over 16x16 blocks (which are made of 4 adjacent 8x8 cells)
+    hog_descriptor = np.concatenate(hog_descriptor)
+    block_size = 4 * 9  # A block consists of 4 histograms, each with 9 bins
+    hog_descriptor_normalized = []
+
+    for i in range(0, len(hog_descriptor) - block_size + 1, block_size):
+        block = hog_descriptor[i:i + block_size]
+        block_norm = np.linalg.norm(block)
+        if block_norm != 0:
+            block = block / block_norm
+        hog_descriptor_normalized.extend(block)
+
+    return np.array(hog_descriptor_normalized)
+
+def visualize_hog(image, hog_descriptor):
+    # Visualize the HOG descriptor
+    num_cells_x = image.shape[1] // 8
+    num_cells_y = image.shape[0] // 8
+    cell_size = 8
+
+    for i in range(num_cells_y):
+        for j in range(num_cells_x):
+            cell_histogram = hog_descriptor[(i * num_cells_x + j) * 9: (i * num_cells_x + j + 1) * 9]
+            cell_angle = np.linspace(0, 180, 9, endpoint=False)
+
+            # Normalize the histogram for visualization purposes
+            cell_histogram /= cell_histogram.max() if cell_histogram.max() != 0 else 1
+            center = (j * cell_size + cell_size // 2, i * cell_size + cell_size // 2)
+
+            for magnitude, angle in zip(cell_histogram, cell_angle):
+                radians = np.deg2rad(angle)
+                x1 = int(center[0] + magnitude * cell_size / 2 * np.cos(radians))
+                y1 = int(center[1] - magnitude * cell_size / 2 * np.sin(radians))
+                x2 = int(center[0] - magnitude * cell_size / 2 * np.cos(radians))
+                y2 = int(center[1] + magnitude * cell_size / 2 * np.sin(radians))
+
+                cv2.line(image, (x1, y1), (x2, y2), (255, 255, 255), 1)
+
+    plt.imshow(image, cmap='gray')
+    plt.show()
+
+# Load the image and convert to grayscale
+image_path = 'path_to_image.jpg'  # Replace with your image path
+image = cv2.imread(image_path)
+image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+# Compute the HOG descriptor
+hog_descriptor = compute_hog_descriptor(image_gray)
+
+# Visualize HOG
+visualize_hog(image_gray.copy(), hog_descriptor)
+
+
+
+
+#for harris corner
+==================
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
+def apply_convolution(image, kernel):
+    # Apply convolution manually
+    image_padded = np.pad(image, ((1, 1), (1, 1)), mode='constant')
+    output = np.zeros_like(image)
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            region = image_padded[i:i + 3, j:j + 3]
+            output[i, j] = np.sum(region * kernel)
+    return output
+
+def compute_gradients_manual(image):
+    # Sobel kernels for x and y directions
+    sobel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+    sobel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+
+    # Apply convolution to get gradients
+    Ix = apply_convolution(image, sobel_x)
+    Iy = apply_convolution(image, sobel_y)
+
+    return Ix, Iy
+
+def gaussian_kernel(size, sigma=1):
+    # Create a Gaussian kernel manually
+    kernel = np.fromfunction(lambda x, y: (1/(2*np.pi*sigma**2)) * np.exp(-((x-(size-1)/2)**2 + (y-(size-1)/2)**2) / (2*sigma**2)), (size, size))
+    return kernel / np.sum(kernel)
+
+def apply_gaussian_filter(image, kernel):
+    # Apply Gaussian filter by convolving manually
+    image_padded = np.pad(image, ((1, 1), (1, 1)), mode='constant')
+    output = np.zeros_like(image)
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            region = image_padded[i:i + 3, j:j + 3]
+            output[i, j] = np.sum(region * kernel)
+    return output
+
+def compute_harris_response_manual(Ix, Iy, k=0.04):
+    # Compute products of gradients
+    Ixx = Ix ** 2
+    Iyy = Iy ** 2
+    Ixy = Ix * Iy
+
+    # Apply Gaussian smoothing to these products
+    kernel = gaussian_kernel(3, sigma=1)
+    Ixx = apply_gaussian_filter(Ixx, kernel)
+    Iyy = apply_gaussian_filter(Iyy, kernel)
+    Ixy = apply_gaussian_filter(Ixy, kernel)
+
+    # Initialize Harris response
+    harris_response = np.zeros_like(Ix)
+
+    # Compute Harris response R for each pixel
+    for i in range(harris_response.shape[0]):
+        for j in range(harris_response.shape[1]):
+            M = np.array([[Ixx[i, j], Ixy[i, j]],
+                          [Ixy[i, j], Iyy[i, j]]])
+            det_M = np.linalg.det(M)
+            trace_M = np.trace(M)
+            harris_response[i, j] = det_M - k * (trace_M ** 2)
+
+    return harris_response
+
+def detect_corners_manual(image, threshold=0.01, k=0.04):
+    # Compute the gradients manually
+    Ix, Iy = compute_gradients_manual(image)
+
+    # Compute the Harris response
+    harris_response = compute_harris_response_manual(Ix, Iy, k=k)
+
+    # Threshold the response to detect corners
+    corners = np.zeros_like(image)
+    corners[harris_response > threshold * harris_response.max()] = 255
+
+    return corners, harris_response
+
+def non_max_suppression_manual(response, window_size=3):
+    # Apply non-maxima suppression to retain local maxima
+    suppressed_response = np.zeros_like(response)
+    for i in range(window_size // 2, response.shape[0] - window_size // 2):
+        for j in range(window_size // 2, response.shape[1] - window_size // 2):
+            local_region = response[i - window_size // 2:i + window_size // 2 + 1, j - window_size // 2:j + window_size // 2 + 1]
+            if response[i, j] == np.max(local_region):
+                suppressed_response[i, j] = response[i, j]
+    return suppressed_response
+
+# Load the image and convert to grayscale
+image_path = 'path_to_image.jpg'  # Replace with your image path
+image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+# Detect corners manually without built-in functions
+corners, harris_response = detect_corners_manual(image, threshold=0.01, k=0.04)
+
+# Apply non-maxima suppression
+suppressed_response = non_max_suppression_manual(harris_response)
+
+# Mark corners on the original image
+image_with_corners = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+image_with_corners[suppressed_response > 0.01 * suppressed_response.max()] = [0, 0, 255]
+
+# Display the result
+plt.subplot(1, 2, 1)
+plt.imshow(image, cmap='gray')
+plt.title("Original Image")
+
+plt.subplot(1, 2, 2)
+plt.imshow(image_with_corners)
+plt.title("Image with Harris Corners")
+plt.show()
+
+# Print the resulting HOG descriptor
+print("HOG Descriptor:", hog_descriptor)
+
+
+
+
+#fast corner
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def compare_pixel_intensity(center_pixel, circle_pixel, threshold):
+    # Compare brightness: either brighter or darker by a threshold
+    if circle_pixel > center_pixel + threshold:
+        return 1  # Brighter
+    elif circle_pixel < center_pixel - threshold:
+        return -1  # Darker
+    else:
+        return 0  # Similar
+
+def is_corner(image, x, y, threshold, n=12):
+    # FAST algorithm checks 16 pixels in a Bresenham circle around the center pixel (x, y)
+    center_pixel = image[x, y]
+    
+    # Coordinates of the 16 pixels on the circle
+    circle_coords = [
+        (-3, 0), (-3, -1), (-2, -2), (-1, -3), (0, -3), (1, -3),
+        (2, -2), (3, -1), (3, 0), (3, 1), (2, 2), (1, 3),
+        (0, 3), (-1, 3), (-2, 2), (-3, 1)
+    ]
+    
+    # Collect pixel values around the circle
+    circle_pixels = []
+    for dx, dy in circle_coords:
+        if (0 <= x + dx < image.shape[0]) and (0 <= y + dy < image.shape[1]):
+            circle_pixels.append(image[x + dx, y + dy])
+        else:
+            return False  # Out of bounds
+
+    # Step 3: Check if there are 'n' contiguous pixels either all brighter or all darker
+    for i in range(len(circle_pixels)):
+        contiguous = 0
+        for j in range(i, i + len(circle_pixels)):
+            pixel_value = circle_pixels[j % len(circle_pixels)]
+            comparison = compare_pixel_intensity(center_pixel, pixel_value, threshold)
+            if comparison != 0:
+                contiguous += 1
+            else:
+                break
+        if contiguous >= n:
+            return True
+    return False
+
+def fast_corner_detection(image, threshold=10, n=12):
+    corners = np.zeros_like(image)
+    
+    # Iterate over each pixel in the image (excluding borders)
+    for x in range(3, image.shape[0] - 3):
+        for y in range(3, image.shape[1] - 3):
+            if is_corner(image, x, y, threshold, n):
+                corners[x, y] = 255  # Mark as a corner
+    
+    return corners
+
+def visualize_corners(image, corners):
+    # Visualize the corners detected
+    image_with_corners = np.copy(image)
+    image_with_corners[corners > 0] = [0, 0, 255]  # Mark corners in red
+    return image_with_corners
+
+# Load and convert image to grayscale
+image_path = 'path_to_image.jpg'  # Replace with your image path
+image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+# Perform FAST corner detection without built-in functions
+corners = fast_corner_detection(image, threshold=15)
+
+# Visualize the corners
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.imshow(image, cmap='gray')
+plt.title("Original Image")
+
+plt.subplot(1, 2, 2)
+plt.imshow(visualize_corners(cv2.cvtColor(image, cv2.COLOR_GRAY2BGR), corners))
+plt.title("FAST Corners")
+plt.show()
+
+
+
+#shift
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Helper Functions
+def gaussian_kernel(size, sigma=1):
+    # Create a Gaussian kernel manually
+    kernel = np.fromfunction(lambda x, y: (1/(2*np.pi*sigma**2)) * np.exp(-((x-(size-1)/2)**2 + (y-(size-1)/2)**2) / (2*sigma**2)), (size, size))
+    return kernel / np.sum(kernel)
+
+def apply_convolution(image, kernel):
+    # Apply convolution manually
+    image_padded = np.pad(image, ((1, 1), (1, 1)), mode='constant')
+    output = np.zeros_like(image)
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            region = image_padded[i:i + kernel.shape[0], j:j + kernel.shape[1]]
+            output[i, j] = np.sum(region * kernel)
+    return output
+
+def build_gaussian_pyramid(image, num_octaves=4, num_scales=5):
+    # Build a Gaussian pyramid with different scales
+    pyramid = []
+    for octave in range(num_octaves):
+        scale_images = []
+        for scale in range(num_scales):
+            sigma = 1.6 * (2 ** (scale / num_scales))
+            kernel = gaussian_kernel(5, sigma)
+            smoothed_image = apply_convolution(image, kernel)
+            scale_images.append(smoothed_image)
+        pyramid.append(scale_images)
+    return pyramid
+
+def difference_of_gaussian(pyramid):
+    # Compute the Difference of Gaussian (DoG) from the Gaussian pyramid
+    dog_pyramid = []
+    for octave in pyramid:
+        dog_images = []
+        for i in range(1, len(octave)):
+            dog_image = octave[i] - octave[i-1]
+            dog_images.append(dog_image)
+        dog_pyramid.append(dog_images)
+    return dog_pyramid
+
+def detect_keypoints(dog_pyramid):
+    # Detect keypoints by finding extrema in the DoG pyramid
+    keypoints = []
+    for octave in range(len(dog_pyramid)):
+        for scale in range(1, len(dog_pyramid[octave]) - 1):
+            for i in range(1, dog_pyramid[octave][scale].shape[0] - 1):
+                for j in range(1, dog_pyramid[octave][scale].shape[1] - 1):
+                    patch = dog_pyramid[octave][scale-1:scale+2, i-1:i+2, j-1:j+2]
+                    if is_extrema(patch):
+                        keypoints.append((i, j, octave, scale))
+    return keypoints
+
+def is_extrema(patch):
+    center_value = patch[1, 1, 1]
+    return center_value == np.max(patch) or center_value == np.min(patch)
+
+# SIFT Descriptor Formation
+def compute_sift_descriptors(image, keypoints):
+    descriptors = []
+    for (i, j, octave, scale) in keypoints:
+        patch = image[i-8:i+8, j-8:j+8]  # Extract 16x16 patch
+        if patch.shape != (16, 16):
+            continue
+        # Compute gradient magnitudes and orientations
+        Ix = apply_convolution(patch, np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]))
+        Iy = apply_convolution(patch, np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]))
+        magnitudes = np.sqrt(Ix**2 + Iy**2)
+        orientations = np.arctan2(Iy, Ix) * (180 / np.pi)
+        orientations[orientations < 0] += 360
+
+        # Form descriptor from 4x4 grid
+        descriptor = []
+        for x in range(0, 16, 4):
+            for y in range(0, 16, 4):
+                hist, _ = np.histogram(orientations[x:x+4, y:y+4], bins=8, range=(0, 360), weights=magnitudes[x:x+4, y:y+4])
+                descriptor.extend(hist)
+        descriptor = np.array(descriptor)
+        descriptor = descriptor / np.linalg.norm(descriptor)  # Normalize
+        descriptor[descriptor > 0.2] = 0.2  # Clamp
+        descriptor = descriptor / np.linalg.norm(descriptor)  # Renormalize
+        descriptors.append(descriptor)
+    return descriptors
+
+# Load image
+image_path = 'path_to_image.jpg'  # Replace with your actual image path
+image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+# Build the Gaussian Pyramid and Difference of Gaussian Pyramid
+pyramid = build_gaussian_pyramid(image)
+dog_pyramid = difference_of_gaussian(pyramid)
+
+# Detect keypoints
+keypoints = detect_keypoints(dog_pyramid)
+
+# Compute SIFT descriptors for the keypoints
+manual_sift_descriptors = compute_sift_descriptors(image, keypoints)
+
+# Using OpenCV's SIFT for comparison
+sift = cv2.xfeatures2d.SIFT_create()
+keypoints_opencv, descriptors_opencv = sift.detectAndCompute(image, None)
+
+# Visualization
+img_keypoints_manual = cv2.drawKeypoints(image, [cv2.KeyPoint(x[1], x[0], 1) for x in keypoints], None, color=(0, 255, 0))
+img_keypoints_opencv = cv2.drawKeypoints(image, keypoints_opencv, None, color=(0, 255, 0))
+
+# Show Results
+plt.subplot(1, 2, 1)
+plt.imshow(img_keypoints_manual, cmap='gray')
+plt.title("Manual SIFT Keypoints")
+
+plt.subplot(1, 2, 2)
+plt.imshow(img_keypoints_opencv, cmap='gray')
+plt.title("OpenCV SIFT Keypoints")
+
+plt.show()
+
