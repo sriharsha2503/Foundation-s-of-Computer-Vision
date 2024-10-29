@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 # Load the video stream
-cap = cv2.VideoCapture('path_to_video.mp4')
+cap = cv2.VideoCapture('')
 
 # Define parameters
 corner_threshold = 0.01  # Threshold for corner detection
